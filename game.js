@@ -1,38 +1,54 @@
 const ROUNDS = 15;
 
-// Stage 2 mock data; replaced by data.json in stage 3.
-const MOCK = [
-  { company: "Meta", title: "Data Scientist", city: "Menlo Park", salary: 185000 },
-  { company: "DoorDash", title: "Data Scientist", city: "San Francisco", salary: 172000 },
-  { company: "Snowflake", title: "Data Engineer", city: "San Mateo", salary: 198000 },
-  { company: "Databricks", title: "Machine Learning Engineer", city: "San Francisco", salary: 225000 },
-  { company: "Google", title: "Data Analyst", city: "Mountain View", salary: 142000 },
-  { company: "Apple", title: "Machine Learning Engineer", city: "Cupertino", salary: 210000 },
-  { company: "Uber", title: "Data Scientist II", city: "San Francisco", salary: 160000 },
-  { company: "Airbnb", title: "Data Scientist", city: "San Francisco", salary: 195000 },
-  { company: "Stripe", title: "Data Engineer", city: "South San Francisco", salary: 205000 },
-  { company: "Salesforce", title: "Data Analyst", city: "San Francisco", salary: 128000 },
-];
-
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => "$" + n.toLocaleString("en-US");
 
-let data = MOCK;
-let left, right, round, results, used;
+const MIN_DIFF = 0.10;  // next salary differs by at least 10%...
+const MAX_DIFF = 0.60;  // ...but not by more than 60% (too obvious)
+const SWE_CAP = 0.30;   // at most 30% of shown cards are Software Engineer roles
+const FAMOUS_WEIGHT = 3;
+
+let data = [];
+let left, right, round, results, used, shown, sweShown;
+
+const isSwe = (d) => d.family === "Software Engineer";
+
+function weightedPick(pool) {
+  const total = pool.reduce((s, d) => s + (d.famous ? FAMOUS_WEIGHT : 1), 0);
+  let r = Math.random() * total;
+  for (const d of pool) {
+    r -= d.famous ? FAMOUS_WEIGHT : 1;
+    if (r <= 0) return d;
+  }
+  return pool[pool.length - 1];
+}
 
 function pickNext(current) {
-  let pool = data.filter((d) => !used.has(d) && d.salary !== current.salary);
-  if (!pool.length) {
-    used.clear();
-    pool = data.filter((d) => d.salary !== current.salary);
+  const sweOk = sweShown + 1 <= SWE_CAP * (shown + 1);
+  const diff = (d) => Math.abs(d.salary - current.salary) / Math.min(d.salary, current.salary);
+  // Strictest filters first; relax until something matches.
+  const filters = [
+    (d) => (sweOk || !isSwe(d)) && d.company !== current.company && diff(d) >= MIN_DIFF && diff(d) <= MAX_DIFF,
+    (d) => (sweOk || !isSwe(d)) && diff(d) >= MIN_DIFF && diff(d) <= MAX_DIFF,
+    (d) => diff(d) >= MIN_DIFF,
+    (d) => d.salary !== current.salary,
+  ];
+  const fresh = data.filter((d) => !used.has(d.id));
+  let pool = [];
+  for (const f of filters) {
+    pool = (current.salary ? fresh.filter(f) : fresh.filter((d) => sweOk || !isSwe(d)));
+    if (pool.length) break;
   }
-  const next = pool[Math.floor(Math.random() * pool.length)];
-  used.add(next);
+  const next = weightedPick(pool);
+  used.add(next.id);
+  shown++;
+  if (isSwe(next)) sweShown++;
   return next;
 }
 
 function renderCard(el, d, showSalary) {
   el.innerHTML = `<h3>${d.company}</h3><p>${d.title}</p><p>${d.city}</p>
+    <p><small>median of ${d.n} filings</small></p>
     <p class="salary">${showSalary ? fmt(d.salary) : "???"}</p>`;
 }
 
@@ -73,7 +89,9 @@ function start() {
   round = 0;
   results = [];
   used = new Set();
-  left = pickNext({ salary: -1 });
+  shown = 0;
+  sweShown = 0;
+  left = pickNext({ salary: 0 });
   right = pickNext(left);
   $("game").hidden = false;
   $("end").hidden = true;
@@ -84,4 +102,11 @@ $("higher").onclick = () => guess(true);
 $("lower").onclick = () => guess(false);
 $("next").onclick = next;
 $("again").onclick = start;
-start();
+
+fetch("data.json")
+  .then((r) => r.json())
+  .then((rows) => {
+    data = rows;
+    start();
+  })
+  .catch((e) => ($("status").textContent = "Failed to load data.json: " + e));
