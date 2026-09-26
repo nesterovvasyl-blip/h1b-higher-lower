@@ -18,8 +18,6 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let data = [];
 let map = null;
-const SITE_URL = "https://nesterovvasyl-blip.github.io/h1b-higher-lower/";
-
 let left, right, round, results, used, shown, sweShown, busy, seen;
 
 // ---------- pair selection ----------
@@ -236,12 +234,6 @@ function insight(cards) {
   return `Widest gap this game: ${withArticle(a.title)} at ${a.company} (${k(a.salary)}) vs ${withArticle(b.title)} at ${b.company} (${k(b.salary)}).`;
 }
 
-function shareText() {
-  const rows = [];
-  for (let i = 0; i < results.length; i += 5) rows.push(results.slice(i, i + 5).map((r) => (r ? "🟩" : "🟥")).join(""));
-  return `H-1B Higher or Lower ${results.filter(Boolean).length}/${ROUNDS}\n${rows.join("\n")}\n${SITE_URL}`;
-}
-
 function end() {
   $("game").hidden = true;
   $("end").hidden = false;
@@ -253,9 +245,10 @@ function end() {
     score >= 13 ? "Comp-band oracle. Are you in HR?" :
     score >= 10 ? "Solid market sense." :
     score >= 7 ? "Coin flip with extra steps." : "Maybe don't negotiate your own offer.";
-  $("emoji").innerHTML = shareText().split("\n").slice(1, -1).join("<br>");
+  const rows = [];
+  for (let i = 0; i < results.length; i += 5) rows.push(results.slice(i, i + 5).map((r) => (r ? "🟩" : "🟥")).join(""));
+  $("emoji").innerHTML = rows.join("<br>");
   $("insight").textContent = insight(seen);
-  $("share").hidden = !navigator.share;
   $("recap").innerHTML = [...seen].sort((a, b) => b.salary - a.salary).map((d) =>
     `<li><span><b>${d.company}</b> · ${d.title} · ${d.city}</span><span>${fmt(d.salary)}</span></li>`
   ).join("");
@@ -287,7 +280,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown") guess(false);
 });
 $("again").onclick = start;
-$("share").onclick = () => navigator.share({ text: shareText() }).catch(() => {});
 
 Promise.all([
   fetch("data.json").then((r) => r.json()),
