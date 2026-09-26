@@ -2,8 +2,9 @@
 
 Input:  prep/raw/LCA_Disclosure_Data_FY*.xlsx  (download manually from
         https://www.dol.gov/agencies/eta/foreign-labor/performance — the site
-        blocks scripted downloads). Files are cumulative within a fiscal year,
-        so use the latest quarter of each FY (e.g. FY2025_Q4 + FY2026_Q3).
+        blocks scripted downloads). Q1-Q3 files are cumulative within a fiscal
+        year, Q4 is Q4-only: e.g. FY2025_Q1..Q4 + FY2026_Q3. Duplicate
+        CASE_NUMBERs across files are dropped.
 Output: data.json at repo root.
 
 Run: python3 prep/build_data.py
@@ -32,14 +33,6 @@ COLS = [
     "WAGE_RATE_OF_PAY_FROM", "WAGE_UNIT_OF_PAY", "PW_WAGE_LEVEL",
 ]
 
-# Data Scientists, Statisticians, Computer & Info Research Scientists, Ops Research
-DATA_SOC = ("15-2051", "15-2041", "15-1221", "15-2031")
-TITLE_RE = (
-    r"data scien|data analy|data engineer|machine learning|\bml\b|analytics"
-    r"|\bai\b|artificial intelligence|applied scien|research scien|statistic"
-    r"|quantitative|business intelligence|decision scien"
-)
-EXCLUDE_RE = r"professor|postdoc|post-doc|intern\b|teaching|lecturer|faculty|student"
 
 UNIT_FACTOR = {"Year": 1, "Month": 12, "Bi-Weekly": 26, "Week": 52, "Hour": 2080}
 
@@ -153,6 +146,52 @@ def clean_title(t: str) -> str:
     return re.sub(r"(?<=\s)(Of|And|For|In|The|To)\b", lambda m: m.group().lower(), t)
 
 
+# First match wins. Rows whose title fits no family are dropped.
+FAMILIES = [
+    ("Analytics Engineer", r"analytics engineer|business intel\w* engineer|\bbie\b"),
+    ("ML Engineer", r"machine learning|\bml\b|\bai\b|artificial intelligence|deep learning|\bmle\b"),
+    ("Research Scientist", r"research scien|applied scien|member of (the )?technical staff|\bmts\b"),
+    ("Data Scientist", r"data scien|decision scien|product scien"),
+    ("Data Engineer", r"data engineer|big data|\betl\b|data platform|data infrastructure"),
+    ("Software Engineer", r"software (development )?engineer|software developer|\bswe\b|\bsde\b"
+                          r"|back ?end|front ?end|full ?stack|engineering manager"),
+    ("Data Analyst", r"data analy|analytics|business intel|\bbi\b|insights analyst"),
+    ("Statistician", r"statistic|biostat"),
+    ("Quant Researcher", r"quantitative (research|analyst|developer)|\bquant\b"),
+]
+MANAGER_NAME = {
+    "Data Scientist": "Data Science Manager", "ML Engineer": "ML Engineering Manager",
+    "Data Engineer": "Data Engineering Manager", "Data Analyst": "Analytics Manager",
+    "Analytics Engineer": "Analytics Manager", "Research Scientist": "Research Manager",
+    "Software Engineer": "Engineering Manager", "Statistician": "Statistics Manager", "Quant Researcher": "Quant Research Manager",
+}
+ROLE_RE = "|".join(f"(?:{pat})" for _, pat in FAMILIES)
+EXCLUDE_RE = r"professor|postdoc|post-doc|intern\b|teaching|lecturer|faculty|student"
+
+# Checked in order; default is mid-level (no prefix).
+SENIORITY = [
+    ("Manager", r"manager|\bmgr\b|director|head of|\bvp\b|vice president"),
+    ("Principal", r"principal|distinguished|fellow|\bv\b"),
+    ("Staff", r"staff(?! scientist)|\biv\b|\blead\b"),
+    ("Senior", r"senior|\bsr\b|\biii\b"),
+    ("Junior", r"junior|\bjr\b|entry|associate|\bi\b"),
+]
+
+
+def classify(title: str) -> tuple[str | None, str]:
+    t = str(title).lower()
+    t_no_mts = re.sub(r"member of (the )?technical staff", "mts", t)
+    family = next((f for f, pat in FAMILIES if re.search(pat, t)), None)
+    seniority = next((s for s, pat in SENIORITY if re.search(pat, t_no_mts)), "")
+    return family, seniority
+
+
+def display_title(family: str, seniority: str) -> str:
+    if seniority == "Manager":
+        return MANAGER_NAME[family]
+    return f"{seniority} {family}".strip()
+
+
 def main():
     df = read_raw()
     funnel = [("raw rows", len(df))]
@@ -167,9 +206,8 @@ def main():
     funnel.append(("H-1B*, full-time", len(df)))
 
     title_l = df.JOB_TITLE.str.lower()
-    is_data = df.SOC_CODE.str[:7].isin(DATA_SOC) | title_l.str.contains(TITLE_RE, regex=True)
-    df = df[is_data & ~title_l.str.contains(EXCLUDE_RE, regex=True)]
-    funnel.append(("data/ML/analytics role", len(df)))
+    df = df[title_l.str.contains(ROLE_RE, regex=True) & ~title_l.str.contains(EXCLUDE_RE, regex=True)]
+    funnel.append(("tech/data role title", len(df)))
 
     wage = pd.to_numeric(df.WAGE_RATE_OF_PAY_FROM.str.replace(r"[$,]", "", regex=True), errors="coerce")
     df = df.assign(salary=wage * df.WAGE_UNIT_OF_PAY.map(UNIT_FACTOR))
@@ -183,21 +221,28 @@ def main():
     df["company"] = emp.str[0]
     df["domain"] = emp.str[1]
     df["famous"] = emp.str[2]
-    df["title"] = df.JOB_TITLE.map(clean_title)
+    df["raw_title"] = df.JOB_TITLE.map(clean_title)
+    cls = df.JOB_TITLE.map(classify)
+    df["family"] = cls.str[0]
+    df["seniority"] = cls.str[1]
+    df = df[df.family.notna()].copy()
+    df["title"] = [display_title(f, s) for f, s in zip(df.family, df.seniority)]
     df["city"] = df.WORKSITE_CITY.str.strip().str.title()
     df["state"] = df.WORKSITE_STATE
     df["level"] = df.PW_WAGE_LEVEL.where(df.PW_WAGE_LEVEL.str.startswith("I"), None)
 
     con = duckdb.connect()
-    con.register("lca", df[["company", "domain", "famous", "title", "city", "state", "level", "salary"]])
+    con.register("lca", df[["company", "domain", "famous", "family", "seniority", "title", "raw_title",
+                         "city", "state", "level", "salary"]])
     agg = con.sql(f"""
         WITH g AS (
             SELECT company, any_value(domain) AS domain, bool_or(famous) AS famous,
-                   title, city, state,
+                   family, seniority, title, city, state,
+                   mode(raw_title) AS top_raw_title,
                    round(median(salary), -3)::INT AS salary,
                    count(*) AS n,
                    mode(level) AS level
-            FROM lca GROUP BY company, title, city, state
+            FROM lca GROUP BY company, family, seniority, title, city, state
             HAVING count(*) >= {MIN_N}
         ), e AS (
             SELECT company, count(*) AS emp_filings FROM lca GROUP BY company
@@ -206,7 +251,7 @@ def main():
                row_number() OVER (PARTITION BY g.company ORDER BY g.n DESC) AS emp_rank
         FROM g JOIN e USING (company)
     """).df()
-    funnel.append((f"(employer, title, city) groups n≥{MIN_N}", len(agg)))
+    funnel.append((f"(company, role, city) groups n≥{MIN_N}", len(agg)))
 
     agg = agg[agg.emp_rank <= MAX_PER_EMPLOYER]
     agg["state_rank"] = agg.state.map({s: i for i, s in enumerate(HUB_STATES)})
@@ -220,8 +265,9 @@ def main():
 
     records = [
         {"id": i, "company": r.company, "domain": r.domain, "title": r.title,
+         "family": r.family, "seniority": r.seniority or "Mid", "raw_title": r.top_raw_title,
          "city": r.city, "state": r.state, "salary": int(r.salary), "n": int(r.n),
-         "level": r.level, "famous": bool(r.famous)}
+         "pw_level": r.level, "famous": bool(r.famous)}
         for i, r in enumerate(out.itertuples())
     ]
     OUT.write_text(json.dumps(records, separators=(",", ":")))
@@ -241,8 +287,14 @@ def main():
     print("\nRows by state / top cities:")
     print(out.state.value_counts().to_string())
     print(out.city.value_counts().head(10).to_string())
+    print("\nRows by family / seniority:")
+    print(pd.crosstab(out.family, out.seniority.replace("", "Mid")).to_string())
+    print("\nFeatured companies:")
+    for c in ["Meta", "Google", "DoorDash", "Snowflake", "Databricks", "Stripe", "OpenAI", "Anthropic"]:
+        r = out[out.company == c]
+        print(f"  {c:<11}{len(r):>3} rows  median ${r.salary.median():,.0f}" if len(r) else f"  {c:<11}  0 rows")
     print("\nSample:")
-    print(out.sample(10, random_state=1)[["company", "title", "city", "salary", "n", "level"]].to_string())
+    print(out.sample(10, random_state=1)[["company", "title", "top_raw_title", "city", "salary", "n"]].to_string())
 
 
 if __name__ == "__main__":
