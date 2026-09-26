@@ -1,0 +1,4 @@
+prep/raw/
+*.parquet
+.DS_Store
+__pycache__/
