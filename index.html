@@ -14,8 +14,13 @@
 
 <header>
   <h1>H-1B <span>Higher</span> or <span>Lower</span></h1>
+  <nav id="modes" aria-label="Game mode">
+    <button data-mode="classic">Classic</button>
+    <button data-mode="timed">⏱ Timed</button>
+  </nav>
   <div id="status"></div>
   <ol id="progress" aria-label="Round results"></ol>
+  <div id="timer" hidden><div id="timer-fill"></div></div>
 </header>
 
 <main id="game">
@@ -24,20 +29,21 @@
     <div class="vs">VS</div>
     <article id="right" class="card"></article>
   </div>
-  <p class="hint">Does the right job pay <b>higher</b> or <b>lower</b>? Keys: ↑ / ↓</p>
+  <p class="hint" id="hint"></p>
 </main>
 
 <section id="end" hidden>
   <div class="result">
     <h2 id="score"></h2>
     <p id="verdict"></p>
+    <p id="best"></p>
     <p id="emoji"></p>
     <div class="end-actions">
       <button id="again" class="btn primary">Play again</button>
     </div>
   </div>
   <p class="insight"><span>💡</span> <span id="insight"></span></p>
-  <h3>Your 16 cards, by pay</h3>
+  <h3 id="recap-title"></h3>
   <ol id="recap"></ol>
 </section>
 

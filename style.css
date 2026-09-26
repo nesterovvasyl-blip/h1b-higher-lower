@@ -13,6 +13,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -40,6 +41,32 @@ h1 span:last-child { color: var(--red); }
 #progress li.ok { background: var(--green); }
 #progress li.bad { background: var(--red); }
 #progress li.now { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+#modes { display: inline-flex; gap: 4px; padding: 4px; margin: 6px 0 8px;
+         background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+#modes button {
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer;
+  background: none; border: 0; border-radius: 8px; padding: 6px 14px; min-height: 36px;
+}
+#modes button:hover { color: var(--text); }
+#modes button[aria-pressed="true"] { background: var(--accent); color: #0b0f17; }
+
+#timer {
+  position: relative; height: 10px; max-width: 420px; margin: 10px auto 18px;
+  background: var(--border); border-radius: 5px;
+}
+#timer-fill { height: 100%; width: 100%; border-radius: 5px; background: var(--accent); }
+#timer.low #timer-fill { background: var(--red); }
+.delta {
+  position: absolute; right: 0; bottom: 14px;
+  font-weight: 800; font-size: 15px; pointer-events: none;
+  animation: float-up 1s ease-out forwards;
+}
+.delta.up { color: var(--green); }
+.delta.down { color: var(--red); }
+@keyframes float-up { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 -22px; } }
+#best { margin: -8px 0 14px; font-weight: 600; }
+#best:empty { display: none; }
 
 #game { width: 100%; max-width: 900px; }
 #board { display: flex; align-items: stretch; gap: 16px; position: relative; }
@@ -148,7 +175,8 @@ footer { margin-top: auto; padding-top: 24px; color: var(--muted); font-size: 12
 @media (max-width: 700px) {
   body { padding: 10px 12px; }
   h1 { font-size: 22px; }
-  #progress { margin: 8px 0 12px; }
+  #progress, #timer { margin: 8px auto 12px; }
+  #timer { width: calc(100% - 48px); }
   #board { flex-direction: column; gap: 12px; }
   .card { padding: 12px 14px; gap: 2px; display: grid;
           grid-template-columns: 52px 1fr; grid-template-areas:
@@ -173,4 +201,6 @@ footer { margin-top: auto; padding-top: 24px; color: var(--muted); font-size: 12
 @media (prefers-reduced-motion: reduce) {
   :root { --slide: 1ms; }
   .map .pulse { animation: none; }
+  .delta { animation-name: fade-out; }
 }
+@keyframes fade-out { to { opacity: 0; } }

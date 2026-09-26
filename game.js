@@ -1,12 +1,20 @@
-const ROUNDS = 15;
+const MODES = {
+  classic: {
+    rounds: 10, countMs: 1100, holdMs: 1100,
+    hint: "Does the right job pay <b>higher</b> or <b>lower</b>? Keys: ↑ / ↓",
+  },
+  timed: {
+    rounds: Infinity, countMs: 350, holdMs: 350,
+    clock: 60, bonus: 3, penalty: 5,  // seconds
+    hint: "<b>+3s</b> right, <b>−5s</b> wrong. The clock pauses while answers are revealed. Keys: ↑ / ↓",
+  },
+};
 
 const MIN_DIFF = 0.10;  // next salary differs by at least 10%...
 const MAX_DIFF = 0.60;  // ...but not by more than 60% (too obvious)
 const SWE_CAP = 0.30;   // at most 30% of shown cards are Software Engineer roles
 const FAMOUS_WEIGHT = 3;
 
-const COUNT_MS = 1100;  // salary count-up
-const HOLD_MS = 1100;   // pause on green/red before sliding
 const SLIDE_MS = 450;   // keep in sync with --slide in style.css
 const MAP_W = 170;      // map viewport width in SVG units (~2.1° lon, ~190 km)
 const MAP_H = MAP_W * 9 / 16;
@@ -19,6 +27,9 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let data = [];
 let map = null;
 let left, right, round, results, used, shown, sweShown, busy, seen;
+let modeKey = "classic", mode = MODES.classic;
+let gen = 0;  // bumped on every start(); async steps from an older game bail out
+let clockMs, playedMs, lastTick;
 
 // ---------- pair selection ----------
 
@@ -44,7 +55,12 @@ function pickNext(current) {
     (d) => diff(d) >= MIN_DIFF,
     (d) => d.salary !== current.salary,
   ];
-  const fresh = data.filter((d) => !used.has(d.id));
+  let fresh = data.filter((d) => !used.has(d.id));
+  if (fresh.length < 20) {
+    // Long timed runs can exhaust the pool: recycle everything but the cards on screen.
+    used = new Set(seen.slice(-2).map((d) => d.id));
+    fresh = data.filter((d) => !used.has(d.id));
+  }
   let pool = [];
   for (const f of filters) {
     pool = (current.salary ? fresh.filter(f) : fresh.filter((d) => sweOk || !isSwe(d)));
@@ -121,12 +137,50 @@ function renderCard(el, d, hidden) {
     </div>` : ""}`;
 }
 
+const correct = () => results.filter(Boolean).length;
+const accuracy = () => (results.length ? Math.round((100 * correct()) / results.length) : 0);
+
 function renderStatus() {
-  const score = results.filter(Boolean).length;
-  $("status").textContent = `Round ${Math.min(round + 1, ROUNDS)} of ${ROUNDS} · Score ${score}`;
-  $("progress").innerHTML = Array.from({ length: ROUNDS }, (_, i) =>
+  $("progress").hidden = !!mode.clock;
+  $("timer").hidden = !mode.clock;
+  if (mode.clock) return renderClock();
+  $("status").textContent = `Round ${Math.min(round + 1, mode.rounds)} of ${mode.rounds} · Score ${correct()}`;
+  $("progress").innerHTML = Array.from({ length: mode.rounds }, (_, i) =>
     `<li class="${i < results.length ? (results[i] ? "ok" : "bad") : i === round ? "now" : ""}"></li>`
   ).join("");
+}
+
+function renderClock() {
+  $("status").textContent = `⏱ ${(clockMs / 1000).toFixed(1)}s · ${correct()} correct` +
+    (results.length ? ` · ${accuracy()}%` : "");
+  $("timer-fill").style.width = Math.min(100, clockMs / (mode.clock * 10)) + "%";
+  $("timer").classList.toggle("low", clockMs < 10000);
+}
+
+function showDelta(sec) {
+  const chip = document.createElement("span");
+  chip.className = "delta " + (sec > 0 ? "up" : "down");
+  chip.textContent = (sec > 0 ? "+" : "−") + Math.abs(sec) + "s";
+  $("timer").append(chip);
+  setTimeout(() => chip.remove(), 1000);
+}
+
+// Counts down only while the player is thinking: paused during reveals (busy)
+// and while the tab is hidden (rAF stops; dt is clamped on return).
+function tick(t, g) {
+  if (g !== gen || $("game").hidden) return;
+  const dt = Math.max(0, Math.min(t - lastTick, 100));
+  lastTick = t;
+  if (!busy) {
+    clockMs = Math.max(0, clockMs - dt);
+    playedMs += dt;
+    if (clockMs === 0) {
+      busy = true;
+      return end();
+    }
+  }
+  renderClock();
+  requestAnimationFrame((t) => tick(t, g));
 }
 
 function render() {
@@ -137,7 +191,7 @@ function render() {
 
 // ---------- animation ----------
 
-function countUp(el, target) {
+function countUp(el, target, ms) {
   if (reducedMotion) {
     el.textContent = fmt(target);
     return Promise.resolve();
@@ -153,21 +207,22 @@ function countUp(el, target) {
     };
     const step = (t) => {
       if (done) return;
-      const p = Math.min(1, (t - t0) / COUNT_MS);
+      const p = Math.min(1, (t - t0) / ms);
       el.textContent = fmt(target * (1 - Math.pow(1 - p, 3)));  // ease-out cubic
       p < 1 ? requestAnimationFrame(step) : finish();
     };
     requestAnimationFrame(step);
-    setTimeout(finish, COUNT_MS + 150);  // rAF pauses in background tabs; never stall the game
+    setTimeout(finish, ms + 150);  // rAF pauses in background tabs; never stall the game
   });
 }
 
-async function slide() {
+async function slide(g) {
   const L = $("left"), R = $("right");
   const a = L.getBoundingClientRect(), b = R.getBoundingClientRect();
   L.classList.add("exit");
   R.style.transform = `translate(${a.left - b.left}px, ${a.top - b.top}px)`;
   await sleep(SLIDE_MS);
+  if (g !== gen) return;
 
   // Swap content with transitions off, then slide the new right card in.
   const board = $("board");
@@ -187,19 +242,28 @@ async function slide() {
 async function guess(higher) {
   if (busy) return;
   busy = true;
+  const g = gen;
   const R = $("right");
   R.querySelectorAll(".btn").forEach((b) => (b.disabled = true));
 
   const ok = higher ? right.salary > left.salary : right.salary < left.salary;
-  await countUp(R.querySelector(".salary"), right.salary);
+  await countUp(R.querySelector(".salary"), right.salary, mode.countMs);
+  if (g !== gen) return;
   results.push(ok);
   R.classList.add(ok ? "correct" : "wrong");
+  if (mode.clock) {
+    const sec = ok ? mode.bonus : -mode.penalty;
+    clockMs = Math.max(0, clockMs + sec * 1000);
+    showDelta(sec);
+  }
   renderStatus();
-  await sleep(reducedMotion ? 600 : HOLD_MS);
+  await sleep(reducedMotion ? Math.min(600, mode.holdMs) : mode.holdMs);
+  if (g !== gen) return;
 
   round++;
-  if (round >= ROUNDS) return end();
-  await slide();
+  if (round >= mode.rounds || (mode.clock && clockMs <= 0)) return end();
+  await slide(g);
+  if (g !== gen) return;
   busy = false;
 }
 
@@ -234,28 +298,68 @@ function insight(cards) {
   return `Widest gap this game: ${withArticle(a.title)} at ${a.company} (${k(a.salary)}) vs ${withArticle(b.title)} at ${b.company} (${k(b.salary)}).`;
 }
 
+const GRID_MAX = 50;  // squares shown on a timed run's end screen
+
+function verdict(score) {
+  const [a, b, c] = mode.clock ? [30, 20, 12] : [9, 7, 5];
+  return score >= a ? "Comp-band oracle. Are you in HR?" :
+    score >= b ? "Solid market sense." :
+    score >= c ? "Coin flip with extra steps." : "Maybe don't negotiate your own offer.";
+}
+
+// Returns the previous best for this mode (0 if none) and stores the new one.
+function saveBest(score) {
+  const key = "h1b-best-" + modeKey;
+  let best = 0;
+  try {
+    best = Number(localStorage.getItem(key)) || 0;
+    if (score > best) localStorage.setItem(key, score);
+  } catch {}
+  return best;
+}
+
 function end() {
   $("game").hidden = true;
   $("end").hidden = false;
   renderStatus();
   $("status").textContent = "Game over";
-  const score = results.filter(Boolean).length;
-  $("score").textContent = `Guessed ${score}/${ROUNDS}`;
-  $("verdict").textContent =
-    score >= 13 ? "Comp-band oracle. Are you in HR?" :
-    score >= 10 ? "Solid market sense." :
-    score >= 7 ? "Coin flip with extra steps." : "Maybe don't negotiate your own offer.";
+  const score = correct();
+  $("score").textContent = mode.clock
+    ? `${score} correct in ${Math.round(playedMs / 1000)}s`
+    : `Guessed ${score}/${mode.rounds}`;
+  $("verdict").textContent = verdict(score) + (mode.clock && results.length ? ` · ${accuracy()}% accuracy` : "");
+  const best = saveBest(score);
+  $("best").textContent =
+    best && score > best ? `🏆 New personal best! (was ${best})` :
+    best ? `Personal best: ${best}` : "";
+  const per = mode.clock ? 10 : 5;
+  const grid = results.slice(0, GRID_MAX);
   const rows = [];
-  for (let i = 0; i < results.length; i += 5) rows.push(results.slice(i, i + 5).map((r) => (r ? "🟩" : "🟥")).join(""));
+  for (let i = 0; i < grid.length; i += per) rows.push(grid.slice(i, i + per).map((r) => (r ? "🟩" : "🟥")).join(""));
+  if (results.length > GRID_MAX) rows[rows.length - 1] += "…";
   $("emoji").innerHTML = rows.join("<br>");
-  $("insight").textContent = insight(seen);
-  $("recap").innerHTML = [...seen].sort((a, b) => b.salary - a.salary).map((d) =>
+  // Only cards the player actually judged (a timed run can end with one unrevealed).
+  const cards = seen.slice(0, results.length + 1);
+  $("insight").parentElement.hidden = !results.length;
+  if (results.length) $("insight").textContent = insight(cards);
+  $("recap-title").textContent = `Your ${cards.length} card${cards.length === 1 ? "" : "s"}, by pay`;
+  $("recap").innerHTML = [...cards].sort((a, b) => b.salary - a.salary).map((d) =>
     `<li><span><b>${d.company}</b> · ${d.title} · ${d.city}</span><span>${fmt(d.salary)}</span></li>`
   ).join("");
   busy = false;
 }
 
-function start() {
+function start(key = modeKey) {
+  modeKey = MODES[key] ? key : "classic";
+  mode = MODES[modeKey];
+  gen++;
+  document.querySelectorAll("#modes button").forEach((b) =>
+    b.setAttribute("aria-pressed", b.dataset.mode === modeKey));
+  $("hint").innerHTML = mode.hint;
+  $("right").style.transform = "";  // in case a slide was interrupted
+  $("timer").querySelectorAll(".delta").forEach((c) => c.remove());
+  clockMs = (mode.clock || 0) * 1000;
+  playedMs = 0;
   round = 0;
   results = [];
   used = new Set();
@@ -268,7 +372,23 @@ function start() {
   $("game").hidden = false;
   $("end").hidden = true;
   render();
+  if (mode.clock) {
+    const g = gen;
+    lastTick = performance.now();
+    requestAnimationFrame((t) => tick(t, g));
+  }
 }
+
+const hashMode = () => location.hash.slice(1);
+
+$("modes").addEventListener("click", (e) => {
+  const key = e.target.closest("[data-mode]")?.dataset.mode;
+  if (!key) return;
+  history.replaceState(null, "", key === "classic" ? location.pathname + location.search : "#" + key);
+  start(key);
+  e.target.blur();  // so Enter/Space don't re-trigger a restart mid-game
+});
+addEventListener("hashchange", () => data.length && start(hashMode()));
 
 $("right").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-guess]");
@@ -279,7 +399,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowUp") guess(true);
   if (e.key === "ArrowDown") guess(false);
 });
-$("again").onclick = start;
+$("again").onclick = () => start();
 
 Promise.all([
   fetch("data.json").then((r) => r.json()),
@@ -289,6 +409,6 @@ Promise.all([
     data = rows;
     map = m;
     if (map) document.getElementById("ca-land").setAttribute("d", map.path);
-    start();
+    start(hashMode());
   })
   .catch((e) => ($("status").textContent = "Failed to load data.json: " + e));
