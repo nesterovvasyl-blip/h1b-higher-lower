@@ -81,7 +81,7 @@ BRANDS = [
     (r"^ORACLE", "Oracle", "oracle.com"),
     (r"^CISCO", "Cisco", "cisco.com"),
     (r"^INTEL\b", "Intel", "intel.com"),
-    (r"^WALMART", "Walmart", "walmart.com"),
+    (r"^WALMART|^WAL MART", "Walmart", "walmart.com"),
     (r"^VISA\b", "Visa", "visa.com"),
     (r"^WORKDAY", "Workday", "workday.com"),
     (r"^SERVICENOW", "ServiceNow", "servicenow.com"),
@@ -96,7 +96,7 @@ BRANDS = [
     (r"^ZOOM\b", "Zoom", "zoom.us"),
     (r"^WELLS FARGO", "Wells Fargo", "wellsfargo.com"),
     (r"^GENENTECH", "Genentech", "gene.com"),
-    (r"^TIKTOK|^BYTEDANCE", "TikTok", "tiktok.com"),
+    (r"^TIKTOK|^BYTEDANCE|^TT COMMERCE", "TikTok", "tiktok.com"),
     (r"^SPOTIFY", "Spotify", "spotify.com"),
     (r"^YAHOO", "Yahoo", "yahoo.com"),
     (r"^EBAY", "eBay", "ebay.com"),
@@ -149,7 +149,8 @@ def clean_title(t: str) -> str:
     t = re.sub(r"\(.*?\)|\[.*?\]", " ", str(t))       # drop "(Req 1234)" etc.
     t = re.sub(r"\s*[-–,/|]\s*$", "", t)
     t = re.sub(r"\s+", " ", t).strip().title()
-    return " ".join(ACRONYMS.get(w, w) for w in t.split())
+    t = re.sub(r"[A-Za-z]+", lambda m: ACRONYMS.get(m.group(), m.group()), t)  # AI/ML too
+    return re.sub(r"(?<=\s)(Of|And|For|In|The|To)\b", lambda m: m.group().lower(), t)
 
 
 def main():
