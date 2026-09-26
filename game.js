@@ -18,7 +18,9 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let data = [];
 let map = null;
-let left, right, round, results, used, shown, sweShown, busy;
+const SITE_URL = "https://nesterovvasyl-blip.github.io/h1b-higher-lower/";
+
+let left, right, round, results, used, shown, sweShown, busy, seen;
 
 // ---------- pair selection ----------
 
@@ -52,6 +54,7 @@ function pickNext(current) {
   }
   const next = weightedPick(pool);
   used.add(next.id);
+  seen.push(next);
   shown++;
   if (isSwe(next)) sweShown++;
   return next;
@@ -202,13 +205,91 @@ async function guess(higher) {
   busy = false;
 }
 
+// ---------- end screen ----------
+
+const RANK = { Junior: 0, Mid: 1, Senior: 2, Staff: 3, Manager: 3, Principal: 4 };
+const k = (n) => "$" + Math.round(n / 1000) + "k";
+const withArticle = (t) => (/^([AEIOU]|ML\b)/.test(t) ? "an " : "a ") + t;
+const role = (d) => (d.seniority === "Mid" ? "mid-level " + d.title : d.title);
+
+// One surprising line from the cards seen this game, strongest pattern first.
+function insight(cards) {
+  const pairs = [];
+  for (const a of cards) for (const b of cards) if (a.company !== b.company && a.salary > b.salary) pairs.push([a, b]);
+  const gap = ([a, b]) => a.salary - b.salary;
+  const best = (ps) => ps.sort((x, y) => gap(y) - gap(x))[0];
+
+  // 1. Same job family, lower seniority out-earns higher seniority.
+  const inversion = best(pairs.filter(([a, b]) => a.family === b.family && RANK[a.seniority] < RANK[b.seniority]));
+  if (inversion) {
+    const [a, b] = inversion;
+    return `${a.company} pays ${withArticle(role(a))} ${k(gap(inversion))} more than ${b.company} pays ${withArticle(b.title)}.`;
+  }
+  // 2. Same job title, different companies.
+  const same = best(pairs.filter(([a, b]) => a.title === b.title));
+  if (same) {
+    const [a, b] = same;
+    return `Same job, different check: ${withArticle(a.title)} at ${a.company} makes ${k(gap(same))} more than at ${b.company}.`;
+  }
+  // 3. Widest spread of the game.
+  const [a, b] = best(pairs);
+  return `Widest gap this game: ${withArticle(a.title)} at ${a.company} (${k(a.salary)}) vs ${withArticle(b.title)} at ${b.company} (${k(b.salary)}).`;
+}
+
+function shareText() {
+  const rows = [];
+  for (let i = 0; i < results.length; i += 5) rows.push(results.slice(i, i + 5).map((r) => (r ? "🟩" : "🟥")).join(""));
+  return `H-1B Higher or Lower ${results.filter(Boolean).length}/${ROUNDS}\n${rows.join("\n")}\n${SITE_URL}`;
+}
+
+function legacyCopy(text) {
+  const ta = Object.assign(document.createElement("textarea"), { value: text });
+  document.body.append(ta);
+  ta.select();
+  const ok = document.execCommand("copy");
+  ta.remove();
+  return ok;
+}
+
+async function copyResult() {
+  const text = shareText();
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch {
+    ok = legacyCopy(text);
+  }
+  if (!ok) {
+    // Last resort: show the text pre-selected so the player can copy it by hand.
+    const box = $("share-text");
+    box.value = text;
+    box.hidden = false;
+    box.select();
+    return;
+  }
+  $("copy").textContent = "Copied ✓";
+  setTimeout(() => ($("copy").textContent = "Copy result"), 1800);
+}
+
 function end() {
   $("game").hidden = true;
   $("end").hidden = false;
   renderStatus();
   $("status").textContent = "Game over";
-  $("score").textContent = `Guessed ${results.filter(Boolean).length}/${ROUNDS}`;
-  $("emoji").textContent = results.map((r) => (r ? "🟩" : "🟥")).join("");
+  const score = results.filter(Boolean).length;
+  $("score").textContent = `Guessed ${score}/${ROUNDS}`;
+  $("verdict").textContent =
+    score >= 13 ? "Comp-band oracle. Are you in HR?" :
+    score >= 10 ? "Solid market sense." :
+    score >= 7 ? "Coin flip with extra steps." : "Maybe don't negotiate your own offer.";
+  $("emoji").innerHTML = shareText().split("\n").slice(1, -1).join("<br>");
+  $("insight").textContent = insight(seen);
+  $("share").hidden = !navigator.share;
+  $("share-text").hidden = true;
+  $("recap").innerHTML = [...seen].sort((a, b) => b.salary - a.salary).map((d) =>
+    `<li><span><b>${d.company}</b> · ${d.title} · ${d.city}</span><span>${fmt(d.salary)}</span></li>`
+  ).join("");
   busy = false;
 }
 
@@ -219,6 +300,7 @@ function start() {
   shown = 0;
   sweShown = 0;
   busy = false;
+  seen = [];
   left = pickNext({ salary: 0 });
   right = pickNext(left);
   $("game").hidden = false;
@@ -236,6 +318,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown") guess(false);
 });
 $("again").onclick = start;
+$("copy").onclick = copyResult;
+$("share").onclick = () => navigator.share({ text: shareText() }).catch(() => {});
 
 Promise.all([
   fetch("data.json").then((r) => r.json()),

@@ -28,9 +28,20 @@
 </main>
 
 <section id="end" hidden>
-  <h2 id="score"></h2>
-  <p id="emoji"></p>
-  <button id="again" class="btn">Play again</button>
+  <div class="result">
+    <h2 id="score"></h2>
+    <p id="verdict"></p>
+    <p id="emoji"></p>
+    <div class="end-actions">
+      <button id="copy" class="btn primary">Copy result</button>
+      <button id="share" class="btn" hidden>Share</button>
+      <button id="again" class="btn">Play again</button>
+    </div>
+    <textarea id="share-text" rows="5" readonly hidden aria-label="Result to copy"></textarea>
+  </div>
+  <p class="insight"><span>💡</span> <span id="insight"></span></p>
+  <h3>Your 16 cards, by pay</h3>
+  <ol id="recap"></ol>
 </section>
 
 <footer>Median annual wage on certified H-1B LCA filings, Oct 2024 – Jun 2026 · Source: US Department of Labor</footer>
