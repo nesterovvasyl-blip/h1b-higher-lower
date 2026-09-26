@@ -1,4 +1,4 @@
 prep/raw/
-*.parquet
+*.pkl
 .DS_Store
 __pycache__/

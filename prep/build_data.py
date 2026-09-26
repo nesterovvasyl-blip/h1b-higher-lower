@@ -8,6 +8,8 @@ Output: data.json at repo root.
 
 Run: python3 prep/build_data.py
 """
+from __future__ import annotations
+
 import json
 import re
 from pathlib import Path
@@ -116,9 +118,9 @@ def read_raw() -> pd.DataFrame:
         raise SystemExit(f"No LCA xlsx files in {RAW}. Download them from dol.gov first.")
     frames = []
     for f in files:
-        cache = f.with_suffix(".parquet")
+        cache = f.with_suffix(".pkl")
         if cache.exists():
-            df = pd.read_parquet(cache)
+            df = pd.read_pickle(cache)
         else:
             print(f"reading {f.name} (slow the first time)...")
             try:
@@ -126,7 +128,7 @@ def read_raw() -> pd.DataFrame:
             except ImportError:
                 df = pd.read_excel(f, usecols=COLS)
             df = df.astype(str)
-            df.to_parquet(cache)
+            df.to_pickle(cache)
         df["SOURCE"] = f.stem.replace("LCA_Disclosure_Data_", "")
         frames.append(df)
         print(f"  {f.name}: {len(df):,} rows")
