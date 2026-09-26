@@ -7,6 +7,7 @@
   --accent: #7c9cff;
   --green: #22c55e;
   --red: #ef4444;
+  --amber: #f59e0b;
   --land: #1d2636;
   --land-edge: #2c3a52;
   --slide: 450ms;
@@ -40,6 +41,7 @@ h1 span:last-child { color: var(--red); }
 #progress li { width: 12px; height: 12px; border-radius: 3px; background: var(--border); }
 #progress li.ok { background: var(--green); }
 #progress li.bad { background: var(--red); }
+#progress li.mid { background: var(--amber); }
 #progress li.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 #modes { display: inline-flex; gap: 4px; padding: 4px; margin: 6px 0 8px;
@@ -124,6 +126,40 @@ h1 span:last-child { color: var(--red); }
 }
 .card.correct .salary { color: var(--green); }
 .card.wrong .salary { color: var(--red); }
+.card.close { border-color: var(--amber); box-shadow: 0 0 32px -6px var(--amber); }
+.card.close .salary { color: var(--amber); }
+
+/* Guess-the-salary slider. Thumb is 28px; marker math below depends on it. */
+.guess { width: 100%; margin-top: 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.guess-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+.card.correct .guess-val { color: var(--green); }
+.card.close .guess-val { color: var(--amber); }
+.card.wrong .guess-val { color: var(--red); }
+.track { position: relative; width: 100%; }
+.guess input[type=range] {
+  -webkit-appearance: none; appearance: none; display: block;
+  width: 100%; height: 44px; margin: 0; background: transparent; cursor: pointer;
+}
+.guess input[type=range]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: var(--border); }
+.guess input[type=range]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--border); }
+.guess input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 28px; height: 28px; margin-top: -10px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--card); box-shadow: 0 0 0 2px var(--accent);
+}
+.guess input[type=range]::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--card); box-shadow: 0 0 0 2px var(--accent);
+}
+.guess input[type=range]:disabled { cursor: default; }
+.guess input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.answer-mark {
+  position: absolute; top: 8px; width: 4px; height: 28px; border-radius: 2px; pointer-events: none;
+  left: calc(var(--p) * (100% - 28px) + 14px); transform: translateX(-50%);
+  background: var(--text); box-shadow: 0 0 0 2px var(--card);
+}
+[data-mode="salary"] .map { aspect-ratio: 3 / 1; }
+.range-labels { width: 100%; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: -6px; }
+.guess .btn { margin-top: 6px; min-width: 160px; }
 .n { color: var(--muted); font-size: 12px; }
 
 .actions { display: flex; gap: 10px; margin-top: 10px; width: 100%; justify-content: center; }
@@ -190,7 +226,8 @@ footer { margin-top: auto; padding-top: 24px; color: var(--muted); font-size: 12
   .map { grid-area: map; max-width: none; aspect-ratio: 3 / 1; margin: 6px 0 0; }
   .salary { grid-area: sal; font-size: 30px; text-align: center; margin-top: 4px; }
   .n { grid-area: n; text-align: center; }
-  .actions { grid-area: act; margin-top: 6px; }
+  .actions, .guess { grid-area: act; margin-top: 6px; }
+  [data-mode="salary"] .map { aspect-ratio: 6 / 1; }
   .btn { flex: 1; min-width: 0; padding: 10px; }
   .vs { position: relative; left: auto; top: auto; transform: none; margin: -26px auto;
         width: 40px; height: 40px; font-size: 13px; }

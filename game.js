@@ -8,6 +8,11 @@ const MODES = {
     clock: 60, bonus: 3, penalty: 5,  // seconds
     hint: "<b>+3s</b> right, <b>−5s</b> wrong. The clock pauses while answers are revealed. Keys: ↑ / ↓",
   },
+  salary: {
+    rounds: 10, countMs: 1100, holdMs: 1800,
+    slider: { min: 60000, max: 400000, step: 1000 },
+    hint: "Guess the right job's exact salary. Within 5% = 100 pts. Keys: ← / → $1k, +Shift $10k, Enter",
+  },
 };
 
 const MIN_DIFF = 0.10;  // next salary differs by at least 10%...
@@ -131,22 +136,43 @@ function renderCard(el, d, hidden) {
     ${mapHtml(d.city)}
     <div class="salary">${hidden ? "$???" : fmt(d.salary)}</div>
     <div class="n">median of ${d.n} filings</div>
-    ${hidden ? `<div class="actions">
+    ${!hidden ? "" : mode.slider ? sliderHtml() : `<div class="actions">
       <button class="btn higher" data-guess="higher">▲ Higher</button>
       <button class="btn lower" data-guess="lower">▼ Lower</button>
-    </div>` : ""}`;
+    </div>`}`;
 }
 
+function sliderHtml() {
+  const { min, max, step } = mode.slider;
+  const start = Math.min(max, Math.max(min, Math.round(left.salary / step) * step));
+  return `<div class="guess">
+    <output class="guess-val">${fmt(start)}</output>
+    <div class="track">
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${start}" aria-label="Your salary guess">
+      <span class="answer-mark" hidden></span>
+    </div>
+    <div class="range-labels"><span>${k(min)}</span><span>${k(max)}</span></div>
+    <button class="btn primary" data-lock>Lock in</button>
+  </div>`;
+}
+
+// 100 within 5%, then exponential falloff: 10% off -> 61, 20% -> 22, 30% -> 8.
+const salaryPoints = (err) => (err <= 0.05 ? 100 : Math.round(100 * Math.exp(-(err - 0.05) / 0.10)));
+const tier = (pts) => (pts >= 80 ? "ok" : pts >= 40 ? "mid" : "bad");
+
 const correct = () => results.filter(Boolean).length;
+const points = () => results.reduce((s, p) => s + p, 0);
 const accuracy = () => (results.length ? Math.round((100 * correct()) / results.length) : 0);
 
 function renderStatus() {
   $("progress").hidden = !!mode.clock;
   $("timer").hidden = !mode.clock;
   if (mode.clock) return renderClock();
-  $("status").textContent = `Round ${Math.min(round + 1, mode.rounds)} of ${mode.rounds} · Score ${correct()}`;
+  $("status").textContent = `Round ${Math.min(round + 1, mode.rounds)} of ${mode.rounds} · ` +
+    (mode.slider ? `${points()} pts` : `Score ${correct()}`);
+  const cls = (r) => (mode.slider ? tier(r) : r ? "ok" : "bad");
   $("progress").innerHTML = Array.from({ length: mode.rounds }, (_, i) =>
-    `<li class="${i < results.length ? (results[i] ? "ok" : "bad") : i === round ? "now" : ""}"></li>`
+    `<li class="${i < results.length ? cls(results[i]) : i === round ? "now" : ""}"></li>`
   ).join("");
 }
 
@@ -239,18 +265,20 @@ async function slide(g) {
 
 // ---------- game flow ----------
 
-async function guess(higher) {
+// Shared round flow: reveal the salary, let judge() score it, then advance.
+// judge returns { result, cls } — result goes into results[], cls tints the card.
+async function play(judge) {
   if (busy) return;
   busy = true;
   const g = gen;
   const R = $("right");
-  R.querySelectorAll(".btn").forEach((b) => (b.disabled = true));
+  R.querySelectorAll("button, input").forEach((b) => (b.disabled = true));
 
-  const ok = higher ? right.salary > left.salary : right.salary < left.salary;
   await countUp(R.querySelector(".salary"), right.salary, mode.countMs);
   if (g !== gen) return;
+  const { result: ok, cls } = judge(R);
   results.push(ok);
-  R.classList.add(ok ? "correct" : "wrong");
+  R.classList.add(cls);
   if (mode.clock) {
     const sec = ok ? mode.bonus : -mode.penalty;
     clockMs = Math.max(0, clockMs + sec * 1000);
@@ -265,6 +293,30 @@ async function guess(higher) {
   await slide(g);
   if (g !== gen) return;
   busy = false;
+}
+
+const guess = (higher) => play(() => {
+  const ok = higher ? right.salary > left.salary : right.salary < left.salary;
+  return { result: ok, cls: ok ? "correct" : "wrong" };
+});
+
+const lockIn = () => play((R) => {
+  const input = R.querySelector("input[type=range]");
+  const { min, max } = mode.slider;
+  const off = Math.abs(+input.value - right.salary);
+  const err = off / right.salary;
+  const pts = salaryPoints(err);
+  const mark = R.querySelector(".answer-mark");
+  mark.style.setProperty("--p", (right.salary - min) / (max - min));
+  mark.hidden = false;
+  R.querySelector(".guess-val").textContent =
+    err < 0.005 ? `Spot on! · +${pts}` : `Off by ${k(off)} (${Math.round(err * 100)}%) · +${pts}`;
+  return { result: pts, cls: { ok: "correct", mid: "close", bad: "wrong" }[tier(pts)] };
+});
+
+function nudge(input, delta) {
+  input.value = +input.value + delta;  // the browser clamps to min/max
+  input.closest(".guess").querySelector(".guess-val").textContent = fmt(input.value);
 }
 
 // ---------- end screen ----------
@@ -299,9 +351,10 @@ function insight(cards) {
 }
 
 const GRID_MAX = 50;  // squares shown on a timed run's end screen
+const square = (r) => (mode.slider ? { ok: "🟩", mid: "🟨", bad: "🟥" }[tier(r)] : r ? "🟩" : "🟥");
 
 function verdict(score) {
-  const [a, b, c] = mode.clock ? [30, 20, 12] : [9, 7, 5];
+  const [a, b, c] = mode.clock ? [30, 20, 12] : mode.slider ? [800, 600, 400] : [9, 7, 5];
   return score >= a ? "Comp-band oracle. Are you in HR?" :
     score >= b ? "Solid market sense." :
     score >= c ? "Coin flip with extra steps." : "Maybe don't negotiate your own offer.";
@@ -323,9 +376,9 @@ function end() {
   $("end").hidden = false;
   renderStatus();
   $("status").textContent = "Game over";
-  const score = correct();
-  $("score").textContent = mode.clock
-    ? `${score} correct in ${Math.round(playedMs / 1000)}s`
+  const score = mode.slider ? points() : correct();
+  $("score").textContent = mode.clock ? `${score} correct in ${Math.round(playedMs / 1000)}s`
+    : mode.slider ? `${score} / ${mode.rounds * 100} pts`
     : `Guessed ${score}/${mode.rounds}`;
   $("verdict").textContent = verdict(score) + (mode.clock && results.length ? ` · ${accuracy()}% accuracy` : "");
   const best = saveBest(score);
@@ -335,7 +388,7 @@ function end() {
   const per = mode.clock ? 10 : 5;
   const grid = results.slice(0, GRID_MAX);
   const rows = [];
-  for (let i = 0; i < grid.length; i += per) rows.push(grid.slice(i, i + per).map((r) => (r ? "🟩" : "🟥")).join(""));
+  for (let i = 0; i < grid.length; i += per) rows.push(grid.slice(i, i + per).map(square).join(""));
   if (results.length > GRID_MAX) rows[rows.length - 1] += "…";
   $("emoji").innerHTML = rows.join("<br>");
   // Only cards the player actually judged (a timed run can end with one unrevealed).
@@ -352,6 +405,7 @@ function end() {
 function start(key = modeKey) {
   modeKey = MODES[key] ? key : "classic";
   mode = MODES[modeKey];
+  document.body.dataset.mode = modeKey;  // lets CSS tweak layout per mode
   gen++;
   document.querySelectorAll("#modes button").forEach((b) =>
     b.setAttribute("aria-pressed", b.dataset.mode === modeKey));
@@ -393,9 +447,20 @@ addEventListener("hashchange", () => data.length && start(hashMode()));
 $("right").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-guess]");
   if (btn) guess(btn.dataset.guess === "higher");
+  if (e.target.closest("[data-lock]")) lockIn();
+});
+$("right").addEventListener("input", (e) => {
+  if (e.target.type === "range") nudge(e.target, 0);
 });
 document.addEventListener("keydown", (e) => {
   if ($("game").hidden) return;
+  if (mode.slider) {
+    const input = $("right").querySelector("input[type=range]");
+    const dir = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+    if (!input || busy || !(dir || e.key === "Enter")) return;
+    e.preventDefault();  // handle arrows ourselves whether or not the slider has focus
+    return dir ? nudge(input, dir * (e.shiftKey ? 10 : 1) * mode.slider.step) : lockIn();
+  }
   if (e.key === "ArrowUp") guess(true);
   if (e.key === "ArrowDown") guess(false);
 });
