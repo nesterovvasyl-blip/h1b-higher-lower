@@ -242,36 +242,6 @@ function shareText() {
   return `H-1B Higher or Lower ${results.filter(Boolean).length}/${ROUNDS}\n${rows.join("\n")}\n${SITE_URL}`;
 }
 
-function legacyCopy(text) {
-  const ta = Object.assign(document.createElement("textarea"), { value: text });
-  document.body.append(ta);
-  ta.select();
-  const ok = document.execCommand("copy");
-  ta.remove();
-  return ok;
-}
-
-async function copyResult() {
-  const text = shareText();
-  let ok = false;
-  try {
-    await navigator.clipboard.writeText(text);
-    ok = true;
-  } catch {
-    ok = legacyCopy(text);
-  }
-  if (!ok) {
-    // Last resort: show the text pre-selected so the player can copy it by hand.
-    const box = $("share-text");
-    box.value = text;
-    box.hidden = false;
-    box.select();
-    return;
-  }
-  $("copy").textContent = "Copied ✓";
-  setTimeout(() => ($("copy").textContent = "Copy result"), 1800);
-}
-
 function end() {
   $("game").hidden = true;
   $("end").hidden = false;
@@ -286,7 +256,6 @@ function end() {
   $("emoji").innerHTML = shareText().split("\n").slice(1, -1).join("<br>");
   $("insight").textContent = insight(seen);
   $("share").hidden = !navigator.share;
-  $("share-text").hidden = true;
   $("recap").innerHTML = [...seen].sort((a, b) => b.salary - a.salary).map((d) =>
     `<li><span><b>${d.company}</b> · ${d.title} · ${d.city}</span><span>${fmt(d.salary)}</span></li>`
   ).join("");
@@ -318,7 +287,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown") guess(false);
 });
 $("again").onclick = start;
-$("copy").onclick = copyResult;
 $("share").onclick = () => navigator.share({ text: shareText() }).catch(() => {});
 
 Promise.all([

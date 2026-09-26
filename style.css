@@ -128,10 +128,6 @@ h1 span:last-child { color: var(--red); }
 #emoji { font-size: 28px; line-height: 1.25; letter-spacing: 3px; margin: 0 0 20px; }
 .end-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b0f17; }
-#share-text {
-  width: 100%; margin-top: 14px; padding: 10px; border-radius: 10px; resize: none;
-  background: #0e1420; color: var(--text); border: 1px solid var(--border); font: 14px/1.4 ui-monospace, monospace;
-}
 .btn.primary:hover { background: #95b0ff; }
 .insight {
   text-align: left; margin: 16px 0; padding: 14px 16px; border-radius: 14px;
