@@ -2,9 +2,9 @@
 
 Input:  prep/raw/LCA_Disclosure_Data_FY*.xlsx  (download manually from
         https://www.dol.gov/agencies/eta/foreign-labor/performance — the site
-        blocks scripted downloads). Q1-Q3 files are cumulative within a fiscal
-        year, Q4 is Q4-only: e.g. FY2025_Q1..Q4 + FY2026_Q3. Duplicate
-        CASE_NUMBERs across files are dropped.
+        blocks scripted downloads). FY2025 files are quarter-only; FY2026_Q3
+        is cumulative (FY26 Q1-Q3). Current set: FY2025_Q1..Q4 + FY2026_Q3
+        = Oct 2024 - Jun 2026. Duplicate CASE_NUMBERs across files are dropped.
 Output: data.json at repo root.
 
 Run: python3 prep/build_data.py
