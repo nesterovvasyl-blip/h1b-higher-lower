@@ -78,7 +78,7 @@ BRANDS = [
     (r"^VISA\b", "Visa", "visa.com"),
     (r"^WORKDAY", "Workday", "workday.com"),
     (r"^SERVICENOW", "ServiceNow", "servicenow.com"),
-    (r"^PALO ALTO NETWORKS", "Palo Alto Networks", "paloaltonetworks.com"),
+    (r"^PALO ALTO NETWORKS", "Palo Alto Networks", "www.paloaltonetworks.com"),
     (r"^SCALE AI", "Scale AI", "scale.com"),
     (r"^PLAID\b", "Plaid", "plaid.com"),
     (r"^CHIME\b", "Chime", "chime.com"),
@@ -248,7 +248,7 @@ def main():
             SELECT company, count(*) AS emp_filings FROM lca GROUP BY company
         )
         SELECT g.*, e.emp_filings,
-               row_number() OVER (PARTITION BY g.company ORDER BY g.n DESC) AS emp_rank
+               row_number() OVER (PARTITION BY g.company ORDER BY g.n DESC, g.title, g.city) AS emp_rank
         FROM g JOIN e USING (company)
     """).df()
     funnel.append((f"(company, role, city) groups n≥{MIN_N}", len(agg)))
@@ -256,8 +256,8 @@ def main():
     agg = agg[agg.emp_rank <= MAX_PER_EMPLOYER]
     agg["state_rank"] = agg.state.map({s: i for i, s in enumerate(HUB_STATES)})
     # CA first; within a state, famous brands first, then most-filing employers, then biggest groups.
-    agg = agg.sort_values(["state_rank", "famous", "emp_filings", "n"],
-                          ascending=[True, False, False, False])
+    agg = agg.sort_values(["state_rank", "famous", "emp_filings", "n", "company", "title", "city"],
+                          ascending=[True, False, False, False, True, True, True])
     ca = agg[agg.state == "CA"]
     out = ca.head(TARGET_ROWS) if len(ca) >= TARGET_ROWS else agg.head(TARGET_ROWS)
     out = out.reset_index(drop=True)

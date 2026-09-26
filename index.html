@@ -4,26 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>H-1B Higher or Lower</title>
+<meta name="description" content="Guess which tech job pays more, using real H-1B salary filings from the US Department of Labor.">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>H-1B Higher or Lower</h1>
-<p id="status"></p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><path id="ca-land"></path></defs>
+</svg>
 
-<div id="game">
-  <div id="left" class="card"></div>
-  <div id="right" class="card"></div>
-  <div id="controls">
-    <button id="higher">Higher</button>
-    <button id="lower">Lower</button>
-    <button id="next" hidden>Next</button>
+<header>
+  <h1>H-1B <span>Higher</span> or <span>Lower</span></h1>
+  <div id="status"></div>
+  <ol id="progress" aria-label="Round results"></ol>
+</header>
+
+<main id="game">
+  <div id="board">
+    <article id="left" class="card"></article>
+    <div class="vs">VS</div>
+    <article id="right" class="card"></article>
   </div>
-</div>
+  <p class="hint">Does the right job pay <b>higher</b> or <b>lower</b>? Keys: ↑ / ↓</p>
+</main>
 
-<div id="end" hidden>
+<section id="end" hidden>
   <h2 id="score"></h2>
   <p id="emoji"></p>
-  <button id="again">Play again</button>
-</div>
+  <button id="again" class="btn">Play again</button>
+</section>
+
+<footer>Median annual wage on certified H-1B LCA filings, Oct 2024 – Jun 2026 · Source: US Department of Labor</footer>
 
 <script src="game.js"></script>
 </body>
